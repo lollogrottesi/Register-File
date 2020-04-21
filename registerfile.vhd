@@ -2,6 +2,7 @@ library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.std_logic_unsigned.all;
 use IEEE.NUMERIC_STD.ALL;
+use IEEE.math_real.all;
 use WORK.CONSTANTS.ALL;
 
 entity register_file is
@@ -13,9 +14,9 @@ entity register_file is
            RD1: 	IN std_logic;
            RD2: 	IN std_logic;
            WR: 		IN std_logic;
-           ADD_WR: 	IN std_logic_vector(log2(total_reg)-1 downto 0);
-           ADD_RD1: IN std_logic_vector(log2(total_reg)-1 downto 0);
-           ADD_RD2: IN std_logic_vector(log2(total_reg)-1 downto 0);
+           ADD_WR: 	IN std_logic_vector(log2_ceil(total_reg)-1 downto 0);
+           ADD_RD1: IN std_logic_vector(log2_ceil(total_reg)-1 downto 0);
+           ADD_RD2: IN std_logic_vector(log2_ceil(total_reg)-1 downto 0);
            DATAIN: 	IN std_logic_vector(word_l-1 downto 0);
            OUT1: 	OUT std_logic_vector(word_l-1 downto 0);
            OUT2: 	OUT std_logic_vector(word_l-1 downto 0));

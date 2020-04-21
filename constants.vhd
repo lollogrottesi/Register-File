@@ -24,25 +24,28 @@ use IEEE.STD_LOGIC_1164.ALL;
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
 use IEEE.NUMERIC_STD.ALL;
+use IEEE.math_real.all;
 
 package CONSTANTS is 
-function log2 (arg: integer) return integer;
+function log2_ceil (arg: integer) return integer;
 end CONSTANTS;
 
 
 
 
 package body CONSTANTS is
-    function log2 (arg: integer) return integer is
-        variable temp : integer := arg;
+    function log2_ceil (arg: integer) return integer is
+        --variable temp : integer := arg;
         variable result : integer := 0;
     begin
-        while temp > 1 loop
-            result := result + 1;
-            temp := temp / 2;
-        end loop;
-        return result;
-    end function log2;
+        --while temp > 1 loop
+        --    result := result + 1;
+        --    temp := temp / 2;
+        --end loop;
+        --return result;
+        result := integer(ceil(log2(real(arg))));
+       	return result;
+    end function log2_ceil;
 end CONSTANTS;
 
 
