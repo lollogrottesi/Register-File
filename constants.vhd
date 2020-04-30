@@ -35,14 +35,8 @@ end CONSTANTS;
 
 package body CONSTANTS is
     function log2_ceil (arg: integer) return integer is
-        --variable temp : integer := arg;
         variable result : integer := 0;
     begin
-        --while temp > 1 loop
-        --    result := result + 1;
-        --    temp := temp / 2;
-        --end loop;
-        --return result;
         result := integer(ceil(log2(real(arg))));
        	return result;
     end function log2_ceil;

@@ -80,32 +80,41 @@ architecture Behavioral of WindowRegisterFileFSM is
     end component;
 
 --Define addresses length.
-constant phy_addr_length:     integer := log2_ceil(2*N*F+M+N);
+constant phy_addr_length:     integer := log2_ceil(2*N*F+M);
 constant logic_addr_length:   integer := log2_ceil(3*N+M);
 constant global_addr_length:  integer := log2_ceil(M);
 constant window_addr_length:  integer := log2_ceil(3*N*F);
-constant n_local:             integer := 2*N*F+N;
+constant n_local:             integer := 2*N*F;
 --Control registers.
 subtype physical_address is std_logic_vector(phy_addr_length-1 downto 0);--Total register address type, all RF is 2*N*F+M+1 registers.
 subtype logical_address is std_logic_vector(logic_addr_length-1 downto 0);
 
 signal CWP: physical_address := (others=> '0');
 signal SWP: physical_address := std_logic_vector(to_unsigned(2*N*F-N ,phy_addr_length));
-signal ctrl_register: std_logic_vector(F-1 downto 0) := (0=> '1', others =>'0');
+signal ctrl_register: std_logic_vector(F downto 0) := (0=> '1', others =>'0');
 signal CANSAVE, CANRESTORE: std_logic;
-signal tmp_ADD_RD1: logical_address;
-signal phy_addr_WR, phy_addr_RD1, phy_addr_RD2: physical_address := (others => '0'); 
-type Statetype is (s0, idle, call_state, ret_state, spill_state);
+--signal tmp_ADD_RD1: logical_address;
+signal phy_addr_WR, phy_addr_RD1, in_reg_ADD_WR, in_reg_ADD_RD1 ,phy_addr_RD2: physical_address := (others => '0'); 
+type Statetype is (s0, idle, call_state, ret_state, spill_state, fill_state);
 signal c_state, n_state : Statetype := s0;
 signal c_cnt, n_cnt: std_logic_vector(window_addr_length-1 downto 0) := (others => '0'); 
 signal tmp_in, tmp_out1, tmp_out2: std_logic_vector(word_l-1 downto 0);
 
 begin
-  RF: register_file generic map (2*N*F+N+M, word_l)  --N+F+M+1 = num_reg(total_RF).
-        port map (CLK, RESET, ENABLE, RD1, RD2, WR, phy_addr_WR, phy_addr_RD1, phy_addr_RD2, tmp_in, tmp_out1, tmp_out2);   
+  RF: register_file generic map (2*N*F+M, word_l)  --N+F+M+1 = num_reg(total_RF).
+        port map (CLK, RESET, ENABLE, RD1, RD2, WR, in_reg_ADD_WR, in_reg_ADD_RD1, phy_addr_RD2, tmp_in, tmp_out1, tmp_out2);   
 
-CANSAVE <= '1';
+CANSAVE <= not ctrl_register(F);
 
+CANRESTORE_UPDATE:
+    process(CWP)
+    begin
+        if (unsigned(CWP) = unsigned(SWP)) then
+            CANRESTORE <= '0';
+        else
+            CANRESTORE <= '1';
+        end if;
+    end process CANRESTORE_UPDATE;
 Address_traslation:        
     process (ADD_WR, ADD_RD1, ADD_RD2)
     begin
@@ -114,15 +123,15 @@ Address_traslation:
             phy_addr_WR <= std_logic_vector((unsigned(ADD_WR) + unsigned (CWP)) mod n_local);
         else
             --Global. ADDR_WR + 2*N*F - 2*N = global_address.
-            phy_addr_WR <= std_logic_vector(to_unsigned((to_integer(unsigned(ADD_WR)) + 2*N*F-2*N), phy_addr_length));
+            phy_addr_WR <= std_logic_vector(to_unsigned((to_integer(unsigned(ADD_WR)) + 2*N*F-3*N), phy_addr_length));
         end if;
         
         if (unsigned (ADD_RD1) < 3*N) then
             --Local address.
-            phy_addr_RD1 <= std_logic_vector((unsigned(tmp_ADD_RD1) + unsigned (CWP)) mod n_local);
+            phy_addr_RD1 <= std_logic_vector((unsigned(ADD_RD1) + unsigned (CWP)) mod n_local);
         else
             --Global. ADDR_RD1 + 2*N*F - 2*N = global_address.
-            phy_addr_RD1 <= std_logic_vector(to_unsigned((to_integer(unsigned(tmp_ADD_RD1)) + 2*N*F-2*N), phy_addr_length));
+            phy_addr_RD1 <= std_logic_vector(to_unsigned((to_integer(unsigned(ADD_RD1)) + 2*N*F-3*N), phy_addr_length));
         end if;      
         
        if (unsigned (ADD_RD2) < 3*N) then
@@ -130,13 +139,13 @@ Address_traslation:
             phy_addr_RD2 <= std_logic_vector((unsigned(ADD_RD2) + unsigned (CWP)) mod n_local);
         else
             --Global. ADDR_RD2 + 2*N*F - 2*N = global_address.
-            phy_addr_RD2 <= std_logic_vector(to_unsigned((to_integer(unsigned(ADD_RD2)) + 2*N*F-2*N), phy_addr_length));
+            phy_addr_RD2 <= std_logic_vector(to_unsigned((to_integer(unsigned(ADD_RD2)) + 2*N*F-3*N), phy_addr_length));
         end if;  
     end process Address_traslation;   
      
 --Final state machine.    
 sync_process_FSM:
-    process(CLK, RESET)
+    process(CLK)
     begin
         if (CLK='1'and CLK'event) then
             if (RESET='1') then
@@ -148,16 +157,18 @@ sync_process_FSM:
             end if;
         end if;
     end process sync_process_FSM;
-    
+
 comb_process_FSM:
-    process(c_state, c_cnt, RET, CALL, IN_FROM_MMU, DATAIN, ADD_RD1, tmp_out1, tmp_out2)
+    process(c_state, c_cnt, RET, CALL, IN_FROM_MMU, ADD_WR, ADD_RD1,DATAIN, tmp_out1, tmp_out2)
     begin
         case c_state is
             when s0 =>
                 CWP <= (others =>'0');
-                SWP <= std_logic_vector(to_unsigned(2*N*F-N ,phy_addr_length));
+                SWP <= std_logic_vector(to_unsigned(2*N*F-2*N ,phy_addr_length));
+                ctrl_register <= (0=> '1', others =>'0');
                 tmp_in <= DATAIN;
-                tmp_ADD_RD1 <= ADD_RD1;
+                in_reg_ADD_WR <= phy_addr_WR;
+                in_reg_ADD_RD1 <= phy_addr_RD1;
                 OUT1 <= tmp_out1;
                 OUT2 <= tmp_out2;
                 n_cnt <= c_cnt;
@@ -168,7 +179,8 @@ comb_process_FSM:
                 SPILL <= '0';
                 FILL <= '0';
                 tmp_in <= DATAIN;
-                tmp_ADD_RD1 <= ADD_RD1;
+                in_reg_ADD_WR <= phy_addr_WR;
+                in_reg_ADD_RD1 <= phy_addr_RD1;
                 OUT1 <= tmp_out1;
                 OUT2 <= tmp_out2; 
                 n_cnt <= c_cnt;
@@ -176,17 +188,28 @@ comb_process_FSM:
                     n_state <= call_state;
                     CWP <= std_logic_vector((unsigned (CWP) + 2*N) mod n_local);
                     --Update CANSAVE.
+                    if (CANSAVE = '1') then
+                        --If shift only if possible.
+                        ctrl_register <= std_logic_vector(shift_left(unsigned(ctrl_register),1));
+                    end if;     
                 elsif (RET = '1') then
+                    CWP <= std_logic_vector((unsigned (CWP) - 2*N) mod n_local);
+                    if (ctrl_register(0) = '0') then
+                        --If shift only if possible.
+                        ctrl_register <= std_logic_vector(shift_right(unsigned(ctrl_register),1));
+                    end if;
                     n_state <= ret_state;
                 else
-                    n_state <= c_state;    
+                    n_state <= c_state;       
                 end if; 
                 
             when call_state =>
                 OUT2 <= tmp_out2;
                 if (CANSAVE = '1') then
                 --Normal call.
-                    tmp_ADD_RD1 <= ADD_RD1;
+                    SPILL <= '0';
+                    in_reg_ADD_WR <= phy_addr_WR;
+                    in_reg_ADD_RD1 <= phy_addr_RD1;
                     tmp_in <= DATAIN;
                     OUT1 <= tmp_out1; 
                     n_state <= idle;
@@ -195,32 +218,83 @@ comb_process_FSM:
                 --SPILL.
                     --SPILL FIRST LOCAL. 
                     n_cnt <= std_logic_vector(unsigned(c_cnt) + 1);
-                    SWP <= std_logic_vector((unsigned (SWP) + 2*N) mod n_local);   
+                    SWP <= std_logic_vector((unsigned(SWP) + 2*N) mod n_local);   
                     tmp_in <= DATAIN;
-                    tmp_ADD_RD1 <= std_logic_vector((unsigned (SWP) + 2*N) mod n_local);
+                    in_reg_ADD_RD1 <= std_logic_vector((unsigned (SWP) + 2*N) mod n_local);
                     OUT_TO_MMU <= tmp_out1;
                     OUT1 <= (others =>'Z');   
                     SPILL <= '1'; 
                     --COUNT REST LOCALS.
                     n_state <= spill_state;
                 end if;
+                
             when spill_state =>
                 if (unsigned (c_cnt) < 2*N) then
                     SPILL <= '1';
                     n_cnt <= std_logic_vector(unsigned(c_cnt) + 1);
-                    tmp_ADD_RD1 <= std_logic_vector((unsigned (SWP) + unsigned (c_cnt)) mod n_local);
+                    in_reg_ADD_RD1 <= std_logic_vector((unsigned (SWP) + unsigned (c_cnt) + N) mod n_local);
                     n_state <= c_state;
                 else
+                    n_cnt <= (others =>'0');
                     n_state <= idle;
                     SPILL <= '0';
+                    FILL <= '0';
+                    tmp_in <= DATAIN;
+                    in_reg_ADD_WR <= phy_addr_WR;
+                    in_reg_ADD_RD1 <= phy_addr_RD1;
                     OUT1 <= tmp_out1;
+                    OUT2 <= tmp_out2; 
                 end if;
-            when others=>
-                tmp_in <= DATAIN;
-                tmp_ADD_RD1 <= ADD_RD1;
-                OUT1 <= tmp_out1;
-                OUT2 <= tmp_out2; 
-                c_cnt <= n_cnt;
+            when ret_state=>
+                 OUT1 <= tmp_out1; 
+                 OUT2 <= tmp_out2;
+                if (CANRESTORE = '1') then
+                --Normal return.
+                    SPILL <= '0';
+                    FILL <=  '0';
+                    in_reg_ADD_WR <= phy_addr_WR;
+                    in_reg_ADD_RD1 <= phy_addr_RD1;
+                    tmp_in <= DATAIN;
+                    n_state <= idle;
+                    n_cnt <= c_cnt;    
+                else
+                --FILL.
+                    --SPILL FIRST LOCAL. 
+                    n_cnt <= std_logic_vector(unsigned(c_cnt) + 1); 
+                    tmp_in <= IN_FROM_MMU;
+                    in_reg_ADD_RD1 <= phy_addr_RD1;
+                    in_reg_ADD_WR <= std_logic_vector(unsigned(SWP) + N);   
+                    SPILL <= '0'; 
+                    FILL <= '1';
+                    --COUNT REST LOCALS.
+                    n_state <= fill_state;
+                end if;
+            when fill_state =>
+                if (unsigned (c_cnt) < 2*N) then
+                    tmp_in <= IN_FROM_MMU;
+                    FILL <= '1';
+                    n_cnt <= std_logic_vector(unsigned(c_cnt) + 1);
+                    in_reg_ADD_WR <= std_logic_vector((unsigned (SWP) + unsigned (c_cnt) + N) mod n_local);
+                    n_state <= c_state;
+                else
+                    SWP <= std_logic_vector((unsigned(SWP) - 2*N) mod n_local);
+                    n_cnt <= (others =>'0');
+                    n_state <= idle;
+                    SPILL <= '0';
+                    FILL <= '0';
+                    tmp_in <= DATAIN;
+                    in_reg_ADD_WR <= phy_addr_WR;
+                    in_reg_ADD_RD1 <= phy_addr_RD1;
+                    OUT1 <= tmp_out1;
+                    OUT2 <= tmp_out2; 
+                end if;    
+--            when others=>
+--                tmp_in <= DATAIN;
+--                in_reg_ADD_WR <= phy_addr_WR;
+--                in_reg_ADD_RD1 <= phy_addr_RD1;
+--                OUT1 <= tmp_out1;
+--                OUT2 <= tmp_out2; 
+--                n_cnt <= c_cnt;
         end case;
     end process comb_process_FSM;    
     
