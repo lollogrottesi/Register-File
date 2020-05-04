@@ -4,7 +4,7 @@ Now you should transform your simple RF in a structure that allows context switc
     • N for the number of registers in each of the IN or OUT or LOCAL window (ﬁxed window) 
     • F for the number of windows
 
-The structure is similar to the one in ﬁgure 3.3: on the right is the structure of the physical RF and on the left the part of the physical RF that are included in the active window. Four registers might be necessary to transform the virtual in the physical RF and to manage the moment in which the RF must SPILL/FILL to/from memory without the need of excessive HW. These registers are SWP, CWP, CANSAVE, CANRESTORE and are used only internally. FourfurthersignalsatleastarenecessaryasI/OofyouRF:CALLandRETURNforsubroutinemanagement, and FILL and SPILL when data are to be moved from and to the memory respectively. This also means that a BUS to/from memory is needed as a signal in your entity.
+The structure is similar to the one in ﬁgure 3.3: on the right is the structure of the physical RF and on the left the part of the physical RF that are included in the active window. Four registers might be necessary to transform the virtual in the physical RF and to manage the moment in which the RF must SPILL/FILL to/from memory without the need of excessive HW. These registers are SWP, CWP, CANSAVE, CANRESTORE and are used only internally. Four further signals at least are necessary as I/O of you RF : CALL and RETURN for subroutine management, and FILL and SPILL when data are to be moved from and to the memory respectively. This also means that a BUS to/from memory is needed as a signal in your entity.
 ![alt text](./Immagine.png)
 
 
